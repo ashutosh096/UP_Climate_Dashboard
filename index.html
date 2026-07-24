@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>UP Climate Dashboard — Sample</title>
+<style>
+  :root{
+    --sand:#f2ede2;
+    --ink:#1f2b23;
+    --clay:#b5502f;
+    --heat:#c23b22;
+    --cool:#2b6e6e;
+    --line:#d8d0bd;
+    --paper:#fbf9f4;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family: "Georgia", "Times New Roman", serif;
+    background:var(--sand);
+    color:var(--ink);
+  }
+  header{
+    padding:36px 40px 20px;
+    border-bottom:2px solid var(--ink);
+  }
+  header h1{
+    margin:0 0 6px;
+    font-size:28px;
+    letter-spacing:0.3px;
+  }
+  header p{
+    margin:0;
+    font-family: -apple-system, Helvetica, Arial, sans-serif;
+    font-size:13px;
+    color:#5b5647;
+    max-width:640px;
+    line-height:1.5;
+  }
+  .badge{
+    display:inline-block;
+    font-family:-apple-system, Helvetica, Arial, sans-serif;
+    font-size:11px;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+    background:var(--clay);
+    color:var(--paper);
+    padding:3px 8px;
+    border-radius:2px;
+    margin-bottom:10px;
+  }
+  main{
+    padding:28px 40px 60px;
+    max-width:1180px;
+    margin:0 auto;
+  }
+  .controls{
+    display:flex;
+    flex-wrap:wrap;
+    gap:24px;
+    align-items:flex-end;
+    margin-bottom:22px;
+    font-family:-apple-system, Helvetica, Arial, sans-serif;
+  }
+  .control-group label{
+    display:block;
+    font-size:11px;
+    letter-spacing:0.06em;
+    text-transform:uppercase;
+    color:#5b5647;
+    margin-bottom:6px;
+  }
+  .seg{
+    display:inline-flex;
+    border:1.5px solid var(--ink);
+    border-radius:3px;
+    overflow:hidden;
+  }
+  .seg button{
+    font-family:-apple-system, Helvetica, Arial, sans-serif;
+    font-size:13px;
+    padding:8px 16px;
+    background:var(--paper);
+    color:var(--ink);
+    border:none;
+    border-right:1.5px solid var(--ink);
+    cursor:pointer;
+  }
+  .seg button:last-child{border-right:none;}
+  .seg button.active{
+    background:var(--ink);
+    color:var(--paper);
+  }
+  .compare-toggle{
+    font-family:-apple-system, Helvetica, Arial, sans-serif;
+    font-size:13px;
+    padding:8px 16px;
+    background:var(--paper);
+    border:1.5px solid var(--clay);
+    color:var(--clay);
+    border-radius:3px;
+    cursor:pointer;
+  }
+  .compare-toggle.active{
+    background:var(--clay);
+    color:var(--paper);
+  }
+  .layout{
+    display:grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap:24px;
+    margin-bottom:28px;
+  }
+  @media (max-width: 880px){ .layout{grid-template-columns:1fr;} }
+
+  .panel{
+    background:var(--paper);
+    border:1px solid var(--line);
+    border-radius:4px;
+    padding:18px 20px;
+  }
+  .panel h2{
+    margin:0 0 4px;
+    font-size:15px;
+  }
+  .panel .sub{
+    font-family:-apple-system, Helvetica, Arial, sans-serif;
+    font-size:11.5px;
+    color:#7a755f;
+    margin-bottom:14px;
+  }
+  .map-placeholder{
+    height:340px;
+    border:1.5px dashed var(--line);
+    border-radius:4px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+    color:#8a8570;
+    font-family:-apple-system, Helvetica, Arial, sans-serif;
+    font-size:12.5px;
+    padding:20px;
+    background:
+      repeating-linear-gradient(45deg, rgba(0,0,0,0.02) 0 10px, transparent 10px 20px);
+  }
+  #chart{width:100%;height:340px;}
+
+  table{
+    width:100%;
+    border-collapse:collapse;
+    font-family:-apple-system, Helvetica, Arial, sans-serif;
+    font-size:12.5px;
+  }
+  th,td{
+    padding:8px 10px;
+    text-align:right;
+    border-bottom:1px solid var(--line);
+    white-space:nowrap;
+  }
+  th{
+    text-align:right;
+    font-size:10.5px;
+    letter-spacing:0.04em;
+    text-transform:uppercase;
+    color:#5b5647;
+    border-bottom:2px solid var(--ink);
+  }
+  td.pin, th.pin{
+    text-align:left;
+    position:sticky;
+    left:0;
+    background:var(--paper);
+    z-index:2;
+    font-weight:600;
+  }
+  th.pin{ z-index:3; }
+  tbody tr:hover td{ background:#f4efe0; }
+  tbody tr:hover td.pin{ background:#efe8d4; }
+  .table-scroll{
+    overflow-x:auto;
+    border:1px solid var(--line);
+    border-radius:4px;
+  }
+  .pos{color:var(--heat);}
+  .neg{color:var(--cool);}
+  footer{
+    font-family:-apple-system, Helvetica, Arial, sans-serif;
+    font-size:11.5px;
+    color:#7a755f;
+    padding:0 40px 30px;
+    max-width:1180px;
+    margin:0 auto;
+  }
+  footer a{color:var(--clay);}
+</style>
+</head>
+<body>
+
+<header>
+  <span class="badge">Sample / Prototype</span>
+  <h1>UP Climate Bias-Correction — District Explorer</h1>
+  <p>Built from the Agra-district rows visible in your screenshots (14 blocks). This shows the toggle and comparison behaviour working on real numbers. The map panel is a placeholder — send over the boundary GeoJSON and it drops straight in.</p>
+</header>
+
+<main>
+  <div class="controls">
+    <div class="control-group">
+      <label>Metric</label>
+      <div class="seg" id="metricSeg">
+        <button data-metric="tmax" class="active">Avg Tmax (°C)</button>
+        <button data-metric="heat">Avg Heat Days</button>
+      </div>
+    </div>
+    <div class="control-group">
+      <label>Scenario</label>
+      <div class="seg" id="scenarioSeg">
+        <button data-scenario="imd" class="active">IMD</button>
+        <button data-scenario="before">Before BC</button>
+        <button data-scenario="after">After BC</button>
+      </div>
+    </div>
+    <div class="control-group">
+      <label>View</label>
+      <button class="compare-toggle" id="compareBtn">Compare % change (IMD vs BC)</button>
+    </div>
+  </div>
+
+  <div class="layout">
+    <div class="panel">
+      <h2>Map</h2>
+      <div class="sub">District/block choropleth — colored by selected metric + scenario</div>
+      <div class="map-placeholder">
+        Awaiting boundary GeoJSON from your boss.<br>
+        Once received, this becomes a live map matching the table below —<br>
+        click a district to filter the table, hover for values.
+      </div>
+    </div>
+    <div class="panel">
+      <h2 id="chartTitle">Avg Tmax (°C) — IMD</h2>
+      <div class="sub">Barauli Ahir → Akola, Agra district blocks</div>
+      <svg id="chart" viewBox="0 0 520 340"></svg>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>District data table</h2>
+    <div class="sub" id="tableSub">District pinned left · showing raw scenario values</div>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr id="theadRow"></tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<footer>
+  Prototype only — data limited to the Agra sample rows from your screenshots. Send the full CSV/Excel export and the boundary GeoJSON to extend this to all districts and light up the real map.
+</footer>
+
+<script>
+const data = [
+  {district:"Agra",sub:"Agra",block:"Barauli Ahir", tmax:{imd:37.41,before:35.92,after:37.59}, heat:{imd:34.2,before:7.3,after:38.4}, pctBefore_tmax:3.99, pctAfter_tmax:-0.48, pctBefore_heat:78.65, pctAfter_heat:-12.28},
+  {district:"Agra",sub:"Agra",block:"Bichpuri", tmax:{imd:37.33,before:35.85,after:37.49}, heat:{imd:33.7,before:6.8,after:36.3}, pctBefore_tmax:3.95, pctAfter_tmax:-0.43, pctBefore_heat:79.82, pctAfter_heat:-7.72},
+  {district:"Agra",sub:"Bah",block:"Bah", tmax:{imd:37.65,before:36.18,after:37.92}, heat:{imd:36.2,before:9.2,after:41.6}, pctBefore_tmax:3.89, pctAfter_tmax:-0.74, pctBefore_heat:74.59, pctAfter_heat:-14.92},
+  {district:"Agra",sub:"Bah",block:"Jaitpur Kalan", tmax:{imd:37.54,before:36.21,after:37.84}, heat:{imd:35.5,before:9.7,after:40.6}, pctBefore_tmax:3.54, pctAfter_tmax:-0.82, pctBefore_heat:72.68, pctAfter_heat:-14.37},
+  {district:"Agra",sub:"Bah",block:"Pinahat", tmax:{imd:37.64,before:36.15,after:37.89}, heat:{imd:36.0,before:9.1,after:41.7}, pctBefore_tmax:3.96, pctAfter_tmax:-0.67, pctBefore_heat:74.72, pctAfter_heat:-15.83},
+  {district:"Agra",sub:"Etmadpur",block:"Etmadpur", tmax:{imd:37.31,before:35.76,after:37.46}, heat:{imd:33.8,before:5.9,after:34.9}, pctBefore_tmax:4.16, pctAfter_tmax:-0.40, pctBefore_heat:82.54, pctAfter_heat:-3.25},
+  {district:"Agra",sub:"Etmadpur",block:"Khandauli", tmax:{imd:37.28,before:35.77,after:37.43}, heat:{imd:33.5,before:5.9,after:34.7}, pctBefore_tmax:4.07, pctAfter_tmax:-0.40, pctBefore_heat:82.39, pctAfter_heat:-3.58},
+  {district:"Agra",sub:"Fatehabad",block:"Fatehabad", tmax:{imd:37.54,before:36.03,after:37.76}, heat:{imd:34.8,before:8.1,after:40.4}, pctBefore_tmax:4.02, pctAfter_tmax:-0.58, pctBefore_heat:76.72, pctAfter_heat:-16.09},
+  {district:"Agra",sub:"Fatehabad",block:"Shamsabad", tmax:{imd:37.49,before:36.02,after:37.69}, heat:{imd:34.5,before:8.1,after:39.6}, pctBefore_tmax:3.93, pctAfter_tmax:-0.53, pctBefore_heat:76.52, pctAfter_heat:-14.78},
+  {district:"Agra",sub:"Kheragarh",block:"Jagner", tmax:{imd:37.49,before:36.11,after:37.65}, heat:{imd:35.3,before:9.9,after:39.6}, pctBefore_tmax:3.69, pctAfter_tmax:-0.42, pctBefore_heat:71.95, pctAfter_heat:-12.18},
+  {district:"Agra",sub:"Kheragarh",block:"Kheragarh", tmax:{imd:37.45,before:36.03,after:37.63}, heat:{imd:34.3,before:8.5,after:39.5}, pctBefore_tmax:3.79, pctAfter_tmax:-0.46, pctBefore_heat:75.22, pctAfter_heat:-15.16},
+  {district:"Agra",sub:"Kheragarh",block:"Saiyan", tmax:{imd:37.51,before:36.07,after:37.71}, heat:{imd:35.1,before:8.7,after:39.8}, pctBefore_tmax:3.85, pctAfter_tmax:-0.52, pctBefore_heat:75.21, pctAfter_heat:-13.39},
+  {district:"Agra",sub:"Kiraoli",block:"Achhnera", tmax:{imd:37.25,before:35.82,after:37.40}, heat:{imd:33.5,before:6.5,after:34.8}, pctBefore_tmax:3.85, pctAfter_tmax:-0.39, pctBefore_heat:80.60, pctAfter_heat:-3.88},
+  {district:"Agra",sub:"Kiraoli",block:"Akola", tmax:{imd:37.37,before:35.93,after:37.54}, heat:{imd:33.9,before:7.3,after:37.8}, pctBefore_tmax:3.86, pctAfter_tmax:-0.44, pctBefore_heat:78.47, pctAfter_heat:-11.50},
+];
+
+let metric = "tmax";
+let scenario = "imd";
+let compare = false;
+
+const metricLabel = {tmax:"Avg Tmax (°C)", heat:"Avg Heat Days"};
+const scenarioLabel = {imd:"IMD", before:"Before BC", after:"After BC"};
+
+document.getElementById("metricSeg").addEventListener("click", e=>{
+  const btn = e.target.closest("button"); if(!btn) return;
+  metric = btn.dataset.metric;
+  [...btn.parentElement.children].forEach(b=>b.classList.remove("active"));
+  btn.classList.add("active");
+  render();
+});
+document.getElementById("scenarioSeg").addEventListener("click", e=>{
+  const btn = e.target.closest("button"); if(!btn) return;
+  scenario = btn.dataset.scenario;
+  [...btn.parentElement.children].forEach(b=>b.classList.remove("active"));
+  btn.classList.add("active");
+  render();
+});
+document.getElementById("compareBtn").addEventListener("click", e=>{
+  compare = !compare;
+  e.target.classList.toggle("active", compare);
+  render();
+});
+
+function render(){
+  renderTable();
+  renderChart();
+}
+
+function renderTable(){
+  const thead = document.getElementById("theadRow");
+  const tbody = document.getElementById("tbody");
+  const sub = document.getElementById("tableSub");
+
+  if(!compare){
+    sub.textContent = "District pinned left · showing raw " + scenarioLabel[scenario] + " values";
+    thead.innerHTML = `
+      <th class="pin">District / Sub-district / Block</th>
+      <th>IMD</th><th>Before BC</th><th>After BC</th>`;
+    tbody.innerHTML = data.map(d=>{
+      const m = d[metric];
+      return `<tr>
+        <td class="pin">${d.district} — ${d.sub} — ${d.block}</td>
+        <td>${m.imd.toFixed(2)}</td>
+        <td>${m.before.toFixed(2)}</td>
+        <td>${m.after.toFixed(2)}</td>
+      </tr>`;
+    }).join("");
+  } else {
+    sub.textContent = "District pinned left · % change vs IMD (" + metricLabel[metric] + ")";
+    thead.innerHTML = `
+      <th class="pin">District / Sub-district / Block</th>
+      <th>% change — Before BC</th>
+      <th>% change — After BC</th>`;
+    tbody.innerHTML = data.map(d=>{
+      const pb = metric==="tmax" ? d.pctBefore_tmax : d.pctBefore_heat;
+      const pa = metric==="tmax" ? d.pctAfter_tmax : d.pctAfter_heat;
+      const cls = v => v>=0 ? "pos" : "neg";
+      const fmt = v => (v>=0?"+":"") + v.toFixed(2) + "%";
+      return `<tr>
+        <td class="pin">${d.district} — ${d.sub} — ${d.block}</td>
+        <td class="${cls(pb)}">${fmt(pb)}</td>
+        <td class="${cls(pa)}">${fmt(pa)}</td>
+      </tr>`;
+    }).join("");
+  }
+}
+
+function renderChart(){
+  const svg = document.getElementById("chart");
+  const title = document.getElementById("chartTitle");
+  title.textContent = (compare ? "% change vs IMD — " + metricLabel[metric] : metricLabel[metric] + " — " + scenarioLabel[scenario]);
+
+  const W=520, H=340, padL=36, padR=10, padT=10, padB=90;
+  const plotW = W-padL-padR, plotH = H-padT-padB;
+
+  let values, isCompare = compare;
+  if(!compare){
+    values = data.map(d => d[metric][scenario]);
+  } else {
+    values = data.map(d => metric==="tmax" ? d.pctAfter_tmax : d.pctAfter_heat);
+  }
+
+  const maxV = Math.max(...values, 0);
+  const minV = Math.min(...values, 0);
+  const range = (maxV-minV) || 1;
+
+  const barW = plotW/data.length*0.62;
+  const gap = plotW/data.length;
+
+  const zeroY = padT + plotH - ((0-minV)/range)*plotH;
+
+  let bars = "";
+  let labels = "";
+  data.forEach((d,i)=>{
+    const v = values[i];
+    const x = padL + i*gap + (gap-barW)/2;
+    const yVal = padT + plotH - ((v-minV)/range)*plotH;
+    const y = Math.min(yVal, zeroY);
+    const h = Math.abs(yVal - zeroY);
+    const color = isCompare ? (v>=0 ? "#c23b22" : "#2b6e6e") : "#b5502f";
+    bars += `<rect x="${x}" y="${y}" width="${barW}" height="${Math.max(h,1)}" fill="${color}" opacity="0.85"></rect>`;
+    labels += `<text x="${x+barW/2}" y="${H-padB+14}" font-size="9" fill="#5b5647" text-anchor="end" transform="rotate(-55 ${x+barW/2} ${H-padB+14})" font-family="-apple-system,Helvetica,Arial,sans-serif">${d.block}</text>`;
+  });
+
+  const axisLine = `<line x1="${padL}" y1="${zeroY}" x2="${W-padR}" y2="${zeroY}" stroke="#1f2b23" stroke-width="1"></line>`;
+  const yTop = `<text x="4" y="${padT+8}" font-size="9" fill="#5b5647" font-family="-apple-system,Helvetica,Arial,sans-serif">${maxV.toFixed(1)}</text>`;
+  const yBot = `<text x="4" y="${padT+plotH}" font-size="9" fill="#5b5647" font-family="-apple-system,Helvetica,Arial,sans-serif">${minV.toFixed(1)}</text>`;
+
+  svg.innerHTML = bars + axisLine + labels + yTop + yBot;
+}
+
+render();
+</script>
+
+</body>
+</html>
