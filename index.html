@@ -768,27 +768,52 @@
     let prevHoveredKey = null;
     let prevSelectedKey = null;
 
-    // Dynamic Scale Calculation Engine
-    const COLORS_SEQUENTIAL = ["#fef9c3", "#fde047", "#fb923c", "#ea580c", "#dc2626", "#991b1b"];
+    // ── Smooth Continuous Colormap Engine ──────────────────────────────────
+    // YlOrRd palette: cream/yellow → orange → red → deep maroon
+    // (matches matplotlib's YlOrRd 9-stop colormap exactly)
+    const YLORD_STOPS = [
+      [0.000, '#ffffcc'],
+      [0.125, '#ffeda0'],
+      [0.250, '#fed976'],
+      [0.375, '#feb24c'],
+      [0.500, '#fd8d3c'],
+      [0.625, '#fc4e2a'],
+      [0.750, '#e31a1c'],
+      [0.875, '#bd0026'],
+      [1.000, '#800026'],
+    ];
 
+    // Per-mapKey continuous scale bounds: { min, max }
+    const mapScaleBounds = {};
+    // Still keep these for compare mode (diverging discrete)
     const mapScaleBreaks = {};
     const mapScaleColors = {};
 
-    function calculateQuantiles(vals, numBins = 6) {
-      if (!vals || vals.length === 0) return Array(numBins + 1).fill(0);
-      const sorted = [...vals].sort((a, b) => a - b);
-      const breaks = [];
-      breaks.push(sorted[0]);
-      for (let i = 1; i < numBins; i++) {
-        const idx = (sorted.length - 1) * (i / numBins);
-        const low = Math.floor(idx);
-        const high = Math.ceil(idx);
-        const weight = idx - low;
-        const val = sorted[low] * (1 - weight) + sorted[high] * weight;
-        breaks.push(val);
+    // Smooth interpolation through the YlOrRd stops
+    function getYlOrdColor(t) {
+      t = Math.max(0, Math.min(1, t));
+      const stops = YLORD_STOPS;
+      if (t <= stops[0][0]) return stops[0][1];
+      if (t >= stops[stops.length - 1][0]) return stops[stops.length - 1][1];
+      for (let i = 0; i < stops.length - 1; i++) {
+        if (t >= stops[i][0] && t <= stops[i + 1][0]) {
+          const localT = (t - stops[i][0]) / (stops[i + 1][0] - stops[i][0]);
+          return interpolateHex(stops[i][1], stops[i + 1][1], localT);
+        }
       }
-      breaks.push(sorted[sorted.length - 1]);
-      return breaks;
+      return stops[stops.length - 1][1];
+    }
+
+    // Map a data value to YlOrRd color using tight min–max of the data
+    function getContinuousColor(val, mapKey) {
+      if (val === null || val === undefined || isNaN(val)) return '#cccccc';
+      const bounds = mapScaleBounds[mapKey];
+      if (!bounds) return '#cccccc';
+      const { min, max } = bounds;
+      const range = max - min;
+      if (range === 0) return getYlOrdColor(0.5);
+      const t = (val - min) / range;
+      return getYlOrdColor(t);
     }
 
     function hexToRgb(hex) {
@@ -817,135 +842,102 @@
       ]);
     }
 
-    function getDivergingColor(val, currentMetric) {
-      if (currentMetric === "tmax") {
-        // Domain: -6% to +18% (RdBu diverging palette)
-        if (val <= 0) {
-          const t = Math.max(0.0, Math.min(1.0, (val - (-6.0)) / 6.0));
-          if (t <= 0.5) {
-            return interpolateHex("#053061", "#4393c3", t / 0.5);
-          } else {
-            return interpolateHex("#4393c3", "#f7f7f7", (t - 0.5) / 0.5);
-          }
-        } else {
-          const t = Math.max(0.0, Math.min(1.0, val / 18.0));
-          if (t <= 0.25) { // 0 to 4.5%
-            return interpolateHex("#f7f7f7", "#fddbc7", t / 0.25);
-          } else if (t <= 0.55) { // 4.5 to 9.9%
-            return interpolateHex("#fddbc7", "#f4a582", (t - 0.25) / 0.30);
-          } else if (t <= 0.80) { // 9.9 to 14.4%
-            return interpolateHex("#f4a582", "#d6604d", (t - 0.55) / 0.25);
-          } else { // 14.4 to 18%
-            return interpolateHex("#d6604d", "#67001f", (t - 0.80) / 0.20);
-          }
-        }
-      } else {
-        // Domain: -20% to +100% (RdBu diverging palette)
-        if (val <= 0) {
-          const t = Math.max(0.0, Math.min(1.0, (val - (-20.0)) / 20.0));
-          if (t <= 0.5) {
-            return interpolateHex("#053061", "#4393c3", t / 0.5);
-          } else {
-            return interpolateHex("#4393c3", "#f7f7f7", (t - 0.5) / 0.5);
-          }
-        } else {
-          const t = Math.max(0.0, Math.min(1.0, val / 100.0));
-          if (t <= 0.15) { // 0 to 15%
-            return interpolateHex("#f7f7f7", "#fddbc7", t / 0.15);
-          } else if (t <= 0.40) { // 15 to 40%
-            return interpolateHex("#fddbc7", "#f4a582", (t - 0.15) / 0.25);
-          } else if (t <= 0.70) { // 40 to 70%
-            return interpolateHex("#f4a582", "#d6604d", (t - 0.40) / 0.30);
-          } else if (t <= 0.90) { // 70 to 90%
-            return interpolateHex("#d6604d", "#b2182b", (t - 0.70) / 0.20);
-          } else { // 90 to 100%
-            return interpolateHex("#b2182b", "#67001f", (t - 0.90) / 0.10);
-          }
+    // ── Smooth Continuous RdBu Diverging Colormap ─────────────────────────
+    // Symmetric: white exactly at 0, blue for negative, red/maroon for positive
+    // Matches matplotlib's RdBu_r (same as the Python PNG comparison maps)
+    const RDBU_STOPS = [
+      [0.000, '#67001f'],  // deep maroon (most positive)
+      [0.100, '#b2182b'],
+      [0.200, '#d6604d'],
+      [0.300, '#f4a582'],
+      [0.400, '#fddbc7'],
+      [0.500, '#f7f7f7'],  // white = zero
+      [0.600, '#d1e5f0'],
+      [0.700, '#92c5de'],
+      [0.800, '#4393c3'],
+      [0.900, '#2166ac'],
+      [1.000, '#053061'],  // deep blue (most negative)
+    ];
+
+    // Symmetric bounds per compare mapKey
+    const compScaleBounds = {};
+
+    // Smooth RdBu: val in [-absMax, +absMax], white at 0
+    function getRdBuColor(val, absMax) {
+      if (val === null || val === undefined || isNaN(val)) return '#cccccc';
+      // t=0.5 → white (zero), t=0 → deep maroon (max positive), t=1 → deep blue (max negative)
+      const t = 0.5 - (val / absMax) * 0.5;
+      const clamped = Math.max(0, Math.min(1, t));
+      const stops = RDBU_STOPS;
+      if (clamped <= stops[0][0]) return stops[0][1];
+      if (clamped >= stops[stops.length - 1][0]) return stops[stops.length - 1][1];
+      for (let i = 0; i < stops.length - 1; i++) {
+        if (clamped >= stops[i][0] && clamped <= stops[i + 1][0]) {
+          const localT = (clamped - stops[i][0]) / (stops[i + 1][0] - stops[i][0]);
+          return interpolateHex(stops[i][1], stops[i + 1][1], localT);
         }
       }
+      return stops[stops.length - 1][1];
     }
 
     function updateActiveScale() {
       const isCompareMode = compare;
       if (!isCompareMode) {
-        let vals = [];
-        data.forEach(d => {
-          const v1 = metric === "tmax" ? d.tmax_imd : d.heat_imd;
-          const v2 = metric === "tmax" ? d.tmax_before : d.heat_before;
-          const v3 = metric === "tmax" ? d.tmax_after : d.heat_after;
-          if (v1 !== null && v1 !== undefined && !isNaN(v1)) vals.push(v1);
-          if (v2 !== null && v2 !== undefined && !isNaN(v2)) vals.push(v2);
-          if (v3 !== null && v3 !== undefined && !isNaN(v3)) vals.push(v3);
-        });
-        const breaks = calculateQuantiles(vals, 6);
-        ["imd", "before", "after"].forEach(k => {
-          mapScaleBreaks[k] = breaks;
-          mapScaleColors[k] = COLORS_SEQUENTIAL;
+        // Compute tight per-map bounds from each dataset separately
+        // so the full YlOrRd spectrum is used within the actual data range
+        ["imd", "before", "after"].forEach(mKey => {
+          const vals = data.map(d => {
+            if (mKey === "imd")    return metric === "tmax" ? d.tmax_imd    : d.heat_imd;
+            if (mKey === "before") return metric === "tmax" ? d.tmax_before : d.heat_before;
+            if (mKey === "after")  return metric === "tmax" ? d.tmax_after  : d.heat_after;
+          }).filter(v => v !== null && v !== undefined && !isNaN(v));
+
+          if (vals.length) {
+            const sorted = [...vals].sort((a, b) => a - b);
+            // Use p2–p98 range so extreme outliers don't compress the palette
+            const p2  = sorted[Math.floor(sorted.length * 0.02)];
+            const p98 = sorted[Math.ceil(sorted.length  * 0.98) - 1];
+            mapScaleBounds[mKey] = { min: p2, max: p98 };
+          }
         });
       } else {
-        // Separate narrow breaks for Before BC (Raw) and After BC
-        // so 1-2% differences are visually distinct
-        let breaksBefore, breaksAfter;
-        if (metric === "tmax") {
-          // Raw model vs IMD: actual range 0% to +16%
-          breaksBefore = [-1, 0, 2, 4, 6, 8, 10, 12, 14, 16, 18];
-          // Bias-corrected vs IMD: actual range -2% to +0.6%
-          breaksAfter  = [-2, -1.5, -1.25, -1, -0.75, -0.5, -0.25, 0, 0.5];
-        } else {
-          // Heat days Raw vs IMD: actual range +14% to +100%+
-          breaksBefore = [-20, 0, 20, 40, 60, 80, 100];
-          // Heat days BC vs IMD: actual range -20% to +5%
-          breaksAfter  = [-20, -15, -10, -5, 0, 5];
-        }
+        // Smooth symmetric RdBu: compute absMax per dataset from actual p98 data
+        // so the symmetric range is tight around the real spread of the data
+        ["compBefore", "compAfter"].forEach(mKey => {
+          const vals = data.map(d =>
+            mKey === "compBefore"
+              ? (metric === "tmax" ? d.tmax_pct_before : d.heat_pct_before)
+              : (metric === "tmax" ? d.tmax_pct_after  : d.heat_pct_after)
+          ).filter(v => v !== null && v !== undefined && !isNaN(v));
 
-        const colorsBefore = [];
-        for (let i = 0; i < breaksBefore.length - 1; i++) {
-          const mid = (breaksBefore[i] + breaksBefore[i + 1]) / 2;
-          colorsBefore.push(getDivergingColor(mid, metric));
-        }
-        const colorsAfter = [];
-        for (let i = 0; i < breaksAfter.length - 1; i++) {
-          const mid = (breaksAfter[i] + breaksAfter[i + 1]) / 2;
-          colorsAfter.push(getDivergingColor(mid, metric));
-        }
-
-        mapScaleBreaks["compBefore"] = breaksBefore;
-        mapScaleColors["compBefore"] = colorsBefore;
-        mapScaleBreaks["compAfter"]  = breaksAfter;
-        mapScaleColors["compAfter"]  = colorsAfter;
+          if (vals.length) {
+            const sorted = [...vals].sort((a, b) => a - b);
+            const p2  = sorted[Math.floor(sorted.length * 0.02)];
+            const p98 = sorted[Math.ceil(sorted.length  * 0.98) - 1];
+            // Symmetric: absMax is the larger of |p2| and |p98|
+            const absMax = Math.max(Math.abs(p2), Math.abs(p98));
+            compScaleBounds[mKey] = { absMax };
+          }
+        });
       }
     }
 
     function getColorForValue(v, mapKey) {
-      if (v === null || v === undefined || isNaN(v)) return "#ccc";
-      const breaks = mapScaleBreaks[mapKey];
-      const colors = mapScaleColors[mapKey];
-      if (!breaks || !colors) return "#ccc";
+      if (v === null || v === undefined || isNaN(v)) return '#cccccc';
 
-      if (!compare) {
-        for (let i = 1; i < breaks.length - 1; i++) {
-          if (v < breaks[i]) return colors[i - 1];
-        }
-        return colors[colors.length - 1];
-      } else {
-        if (v <= breaks[0]) return colors[0];
-        if (v >= breaks[breaks.length - 1]) return colors[colors.length - 1];
-        for (let i = 0; i < breaks.length - 1; i++) {
-          if (v >= breaks[i] && v < breaks[i + 1]) {
-            return colors[i];
-          }
-        }
-        return colors[colors.length - 1];
+      // Compare mode: smooth continuous RdBu symmetric around zero
+      if (compare) {
+        const bounds = compScaleBounds[mapKey];
+        if (!bounds) return '#cccccc';
+        return getRdBuColor(v, bounds.absMax);
       }
+
+      // Standard mode: smooth continuous YlOrRd
+      return getContinuousColor(v, mapKey);
     }
 
-    function colorScaleTmax(v, isCompare) {
-      return getColorForValue(v, "imd");
-    }
-
-    function colorScaleHeat(v, isCompare) {
-      return getColorForValue(v, "imd");
-    }
+    function colorScaleTmax(v, isCompare) { return getColorForValue(v, 'imd'); }
+    function colorScaleHeat(v, isCompare) { return getColorForValue(v, 'imd'); }
 
     function getMapValue(rec, mapKey) {
       if (!rec) return null;
@@ -1105,48 +1097,67 @@
         const container = document.getElementById(containerId);
         if (!container) return;
 
-        const b = mapScaleBreaks[mKey];
-        const c = mapScaleColors[mKey];
-        if (!b || !c) return;
-
-        const stops = [];
-        if (!isCompareMode) {
-          const dec = 1;
-          stops.push([`< ${b[1].toFixed(dec)}${unit}`, c[0]]);
-          stops.push([`${b[1].toFixed(dec)}–${b[2].toFixed(dec)}`, c[1]]);
-          stops.push([`${b[2].toFixed(dec)}–${b[3].toFixed(dec)}`, c[2]]);
-          stops.push([`${b[3].toFixed(dec)}–${b[4].toFixed(dec)}`, c[3]]);
-          stops.push([`${b[4].toFixed(dec)}–${b[5].toFixed(dec)}`, c[4]]);
-          stops.push([`> ${b[5].toFixed(dec)}${unit}`, c[5]]);
-        } else {
-          for (let i = 0; i < b.length - 1; i++) {
-            const low = b[i];
-            const high = b[i + 1];
-            let label = "";
-            if (i === 0) {
-              label = `≤ ${high}%`;
-            } else if (i === b.length - 2) {
-              label = `> ${low}%`;
-            } else {
-              label = `${low}% to ${high}%`;
-            }
-            stops.push([label, c[i]]);
-          }
-        }
-
         const stats = getMapStats(mKey);
-
         const statsHtml = `<div class="legend-stats">
-      <span>Min: <b>${stats.min.toFixed(1)}${unit}</b></span>
-      <span>Med: <b>${stats.med.toFixed(1)}${unit}</b></span>
-      <span>Max: <b>${stats.max.toFixed(1)}${unit}</b></span>
-    </div>`;
+          <span>Min: <b>${stats.min.toFixed(1)}${unit}</b></span>
+          <span>Med: <b>${stats.med.toFixed(1)}${unit}</b></span>
+          <span>Max: <b>${stats.max.toFixed(1)}${unit}</b></span>
+        </div>`;
 
-        const swatchesHtml = stops.map(([label, color]) =>
-          `<div class="row" title="Value range ${label}"><span class="sw" style="background:${color}"></span>${label}</div>`
-        ).join("");
+        if (!isCompareMode) {
+          // ── Smooth gradient bar legend (matches Python PNG style) ──────────
+          const bounds = mapScaleBounds[mKey];
+          if (!bounds) return;
+          const { min, max } = bounds;
+          const dec = metric === "tmax" ? 1 : 0;
 
-        container.innerHTML = statsHtml + `<div class="legend-swatches">${swatchesHtml}</div>`;
+          // Build CSS gradient from YlOrRd stops
+          const gradStops = YLORD_STOPS.map(([t, c]) => `${c} ${(t * 100).toFixed(1)}%`).join(", ");
+          const gradCss = `linear-gradient(to right, ${gradStops})`;
+
+          // 5 labeled ticks evenly across the range
+          const numTicks = 5;
+          const ticks = Array.from({ length: numTicks }, (_, i) => {
+            const val = min + (max - min) * (i / (numTicks - 1));
+            return val.toFixed(dec);
+          });
+          const ticksHtml = ticks.map((v, i) => {
+            const pct = (i / (numTicks - 1) * 100).toFixed(1);
+            return `<span style="position:absolute;left:${pct}%;transform:translateX(-50%);font-size:9.5px;color:#5b5647;white-space:nowrap;">${v}${unit}</span>`;
+          }).join("");
+
+          container.innerHTML = statsHtml + `
+            <div style="margin-top:6px;">
+              <div style="height:14px;border-radius:4px;background:${gradCss};border:1px solid rgba(0,0,0,0.12);"></div>
+              <div style="position:relative;height:22px;margin-top:2px;">${ticksHtml}</div>
+            </div>`;
+
+        } else {
+          // Compare mode: smooth RdBu gradient bar — symmetric, white exactly at 0
+          const bounds = compScaleBounds[mKey];
+          if (!bounds) return;
+          const { absMax } = bounds;
+          const dec = metric === "tmax" ? 1 : 0;
+
+          // CSS gradient: deep maroon (left=+max) → white (centre=0) → deep blue (right=−max)
+          const gradStops = RDBU_STOPS.map(([t, c]) => `${c} ${(t * 100).toFixed(1)}%`).join(", ");
+          const gradCss = `linear-gradient(to right, ${gradStops})`;
+
+          // 5 symmetric ticks: +absMax … 0 … −absMax
+          const tickVals = [absMax, absMax / 2, 0, -absMax / 2, -absMax];
+          const ticksHtml = tickVals.map((v, i) => {
+            const pct = (i / (tickVals.length - 1) * 100).toFixed(1);
+            const label = (v === 0 ? "0" : (v > 0 ? "+" : "") + v.toFixed(dec)) + unit;
+            return `<span style="position:absolute;left:${pct}%;transform:translateX(-50%);font-size:9.5px;color:#5b5647;white-space:nowrap;">${label}</span>`;
+          }).join("");
+
+          container.innerHTML = statsHtml + `
+            <div style="margin-top:6px;">
+              <div style="height:14px;border-radius:4px;background:${gradCss};border:1px solid rgba(0,0,0,0.12);"></div>
+              <div style="position:relative;height:22px;margin-top:2px;">${ticksHtml}</div>
+              <div style="font-size:9px;color:#888;margin-top:18px;text-align:center;">🔴 positive (IMD &gt; model) &nbsp;|&nbsp; ⬜ zero &nbsp;|&nbsp; 🔵 negative (model &gt; IMD)</div>
+            </div>`;
+        }
       });
     }
 
