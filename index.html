@@ -901,23 +901,12 @@
           }
         });
       } else {
-        // Smooth symmetric RdBu: compute absMax per dataset from actual p98 data
-        // so the symmetric range is tight around the real spread of the data
+        // Fixed symmetric RdBu bounds per boss's request:
+        //   avg Tmax compare      => +/-10 %
+        //   avg Heat Days compare  => +/-70 %
+        const fixedAbsMax = metric === "tmax" ? 10 : 70;
         ["compBefore", "compAfter"].forEach(mKey => {
-          const vals = data.map(d =>
-            mKey === "compBefore"
-              ? (metric === "tmax" ? d.tmax_pct_before : d.heat_pct_before)
-              : (metric === "tmax" ? d.tmax_pct_after  : d.heat_pct_after)
-          ).filter(v => v !== null && v !== undefined && !isNaN(v));
-
-          if (vals.length) {
-            const sorted = [...vals].sort((a, b) => a - b);
-            const p2  = sorted[Math.floor(sorted.length * 0.02)];
-            const p98 = sorted[Math.ceil(sorted.length  * 0.98) - 1];
-            // Symmetric: absMax is the larger of |p2| and |p98|
-            const absMax = Math.max(Math.abs(p2), Math.abs(p98));
-            compScaleBounds[mKey] = { absMax };
-          }
+          compScaleBounds[mKey] = { absMax: fixedAbsMax };
         });
       }
     }
